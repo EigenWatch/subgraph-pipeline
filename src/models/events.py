@@ -4,12 +4,6 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import BYTEA, ARRAY, JSONB
 from .base import Base, TimestampMixin
 from .entities import (
-    Operator,
-    Staker,
-    AVS,
-    Strategy,
-    OperatorSet,
-    EigenPod,
     ShareEventType,
     DelegationType,
     WithdrawalEventType,
@@ -23,12 +17,16 @@ from .entities import (
 
 class BaseEvent(Base, TimestampMixin):
     __abstract__ = True
-    id = Column(String, primary_key=True)  # Often txHash-logIndex or custom
+
+    id = Column(String, primary_key=True)  # Usually txHash-logIndex or custom
     transaction_hash = Column(BYTEA, nullable=False)
     log_index = Column(BigInteger, nullable=False)
     block_number = Column(BigInteger, nullable=False)
     block_timestamp = Column(BigInteger, nullable=False)  # Unix timestamp
     contract_address = Column(BYTEA, nullable=False)
+
+    # ✅ Full raw payload for audit / schema evolution / re-processing
+    raw_data = Column(JSONB, nullable=False)
 
 
 # OperatorRegistered Event
