@@ -1,30 +1,22 @@
 import pandas as pd
+import json
 
 
-def debug_print(data, max_rows: int = 10):
-    """Pretty-print data or pandas DataFrames with clear separators."""
+def debug_print(data):
+    """Pretty-print any data (including DataFrames) in full JSON format with clear separators."""
     separator_top = ">>>" * 40
     separator_bottom = "<<<" * 40
     print(separator_top)
 
+    # Convert DataFrame to JSON
     if isinstance(data, pd.DataFrame):
-        print(f"DataFrame ({len(data)} rows, {len(data.columns)} columns)")
-        print("-" * 80)
-        # Show top and bottom rows if large
-        with pd.option_context(
-            "display.max_rows", max_rows, "display.max_columns", None
-        ):
-            if len(data) > max_rows:
-                print(data.head(max_rows // 2))
-                print("...")
-                print(data.tail(max_rows // 2))
-            else:
-                print(data)
+        json_data = data.to_dict(orient="records")
+        print(json.dumps(json_data, indent=2, default=str))
+    # Convert lists or dicts directly
     elif isinstance(data, (dict, list)):
-        import json
-
         print(json.dumps(data, indent=2, default=str))
     else:
-        print(data)
+        # Fallback to string representation
+        print(str(data))
 
     print(separator_bottom)
