@@ -7,6 +7,7 @@ from utils.query_builder import SubgraphQueryBuilder
 def resources():
     return dg.Definitions(
         resources={
-            "SubgraphQueryBuilder": SubgraphQueryBuilder,
+            "query_builder": SubgraphQueryBuilder(),
+            "subgraph_url": "https://api.studio.thegraph.com/query/116357/eigenwatch-ethereum/version/latest",
         }
     )

@@ -1,25 +1,15 @@
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any, Union
+from dagster import ConfigurableResource
 
 
-class SubgraphQueryBuilder:
+class SubgraphQueryBuilder(ConfigurableResource):
     """
-    Utility class for generating efficient GraphQL queries dynamically for subgraph event fetching.
-    Follows The Graph best practices (id-based pagination, small batches, composable filters).
+    Utility for dynamically generating GraphQL queries for subgraph event fetching.
+    Supports nested field selections defined per query.
     """
 
-    def __init__(self, event_name: str, fields: List[str]):
-        """
-        :param event_name: The individual entity name, e.g., 'OperatorRegisteredEvent'
-        :param fields: List of field names to query from each event
-        """
-        self.event_name = event_name
-        self.fields = fields
-
-    def _build_where_clause(self, **filters: Dict[str, any]) -> str:
-        """
-        Internal utility to convert Python filters into GraphQL 'where' clause syntax.
-        Automatically quotes strings and joins filters with commas.
-        """
+    def _build_where_clause(self, **filters: Dict[str, Any]) -> str:
+        """Convert Python filters into GraphQL 'where' clause syntax."""
         if not filters:
             return ""
 
@@ -27,58 +17,71 @@ class SubgraphQueryBuilder:
         for k, v in filters.items():
             if v is None:
                 continue
-            # Automatically wrap strings in quotes
             value = f'"{v}"' if isinstance(v, str) else v
             parts.append(f"{k}: {value}")
 
-        if not parts:
-            return ""
-        return f"(where: {{{', '.join(parts)}}})"
+        return f"(where: {{{', '.join(parts)}}})" if parts else ""
+
+    def _build_fields_block(
+        self,
+        fields: List[str],
+        nested_fields: Optional[Dict[str, List[str]]] = None,
+    ) -> str:
+        """
+        Recursively build GraphQL selection sets.
+        Handles nested fields like {"operator": ["id", "address"]}.
+        """
+        lines = []
+        for field in fields:
+            if nested_fields and field in nested_fields:
+                subfields = nested_fields[field]
+                sub_block = self._build_fields_block(subfields)
+                lines.append(f"{field} {{\n{sub_block}\n}}")
+            else:
+                lines.append(field)
+        return "\n".join(lines)
 
     def build_query(
         self,
+        event_name: str,
+        fields: List[str],
         first: int = 200,
         last_id: Optional[str] = None,
         block_number_gte: Optional[int] = None,
         block_number_lt: Optional[int] = None,
         order_by: str = "id",
         order_direction: str = "asc",
-        extra_filters: Optional[Dict[str, any]] = None,
+        extra_filters: Optional[Dict[str, Any]] = None,
+        nested_fields: Optional[Dict[str, List[str]]] = None,
     ) -> str:
         """
-        Build a GraphQL query for this event type using id-based pagination.
-        Supports block range and custom filters.
+        Build a complete GraphQL query for subgraph event fetching.
 
-        :param first: Number of records to fetch (recommended <= 200)
-        :param last_id: For id-based pagination, use 'id_gt: last_id'
-        :param block_number_gte: Minimum block number
-        :param block_number_lt: Maximum block number
-        :param extra_filters: Additional where filters (dict)
+        Args:
+            event_name: The event entity to query (e.g., "operatorRegistereds")
+            fields: Top-level fields to include
+            nested_fields: Dict specifying which fields have subfields, e.g.
+                {"operator": ["id", "address"]}
         """
-
         filters = {}
 
-        # Add id-based pagination
         if last_id:
             filters["id_gt"] = last_id
-
-        # Add block range filters
         if block_number_gte is not None:
             filters["blockNumber_gte"] = block_number_gte
         if block_number_lt is not None:
             filters["blockNumber_lt"] = block_number_lt
-
-        # Merge in user-defined filters
         if extra_filters:
             filters.update(extra_filters)
 
         where_clause = self._build_where_clause(**filters)
 
-        fields_block = "\n        ".join(self.fields)
+        # Build full field structure with nested selections
+        fields_block = self._build_fields_block(fields, nested_fields)
 
         query = f"""
         query {{
-          {self.event_name}(
+          {event_name}(
             first: {first},
             orderBy: {order_by},
             orderDirection: {order_direction}
@@ -94,14 +97,11 @@ class SubgraphQueryBuilder:
         self,
         block_ranges: List[Dict[str, int]],
         first: int = 200,
+        nested_fields: Optional[Dict[str, List[str]]] = None,
         **kwargs,
     ) -> List[str]:
         """
-        Generate multiple queries for given block ranges.
-        Useful when batching large datasets safely within query limits.
-
-        :param block_ranges: List of dicts, e.g. [{'gte': 1000, 'lt': 2000}, ...]
-        :param first: Items per query (default 200)
+        Build multiple paginated queries over block ranges.
         """
         queries = []
         for r in block_ranges:
@@ -109,6 +109,7 @@ class SubgraphQueryBuilder:
                 first=first,
                 block_number_gte=r.get("gte"),
                 block_number_lt=r.get("lt"),
+                nested_fields=nested_fields,
                 **kwargs,
             )
             queries.append(q)
