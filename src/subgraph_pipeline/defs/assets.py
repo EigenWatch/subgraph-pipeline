@@ -233,3 +233,6 @@ def generate_all_operator_event_assets():
         asset = create_event_extraction_and_load_asset(config=config, first=100)
         assets.append(asset)
     return assets
+
+
+operator_event_assets = generate_all_operator_event_assets()
