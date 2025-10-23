@@ -1,7 +1,7 @@
 # models/events.py
 from sqlalchemy import Boolean, Column, String, BigInteger, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import BYTEA, ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from .base import Base, TimestampMixin
 from .entities import (
     ShareEventType,
@@ -19,11 +19,11 @@ class BaseEvent(Base, TimestampMixin):
     __abstract__ = True
 
     id = Column(String, primary_key=True)  # Usually txHash-logIndex or custom
-    transaction_hash = Column(BYTEA, nullable=False)
+    transaction_hash = Column(String, nullable=False)
     log_index = Column(BigInteger, nullable=False)
     block_number = Column(BigInteger, nullable=False)
     block_timestamp = Column(BigInteger, nullable=False)  # Unix timestamp
-    contract_address = Column(BYTEA, nullable=False)
+    contract_address = Column(String, nullable=False)
 
     # ✅ Full raw payload for audit / schema evolution / re-processing
     raw_data = Column(JSONB, nullable=False)
@@ -37,7 +37,7 @@ class OperatorRegistered(BaseEvent):
     operator_id = Column(
         String, ForeignKey("operators.id", ondelete="CASCADE"), nullable=False
     )
-    delegation_approver = Column(BYTEA, nullable=False)
+    delegation_approver = Column(String, nullable=False)
 
     operator = relationship("Operator", back_populates="registration_events")
 
@@ -50,7 +50,7 @@ class DelegationApproverUpdated(BaseEvent):
     operator_id = Column(
         String, ForeignKey("operators.id", ondelete="CASCADE"), nullable=False
     )
-    new_delegation_approver = Column(BYTEA, nullable=False)
+    new_delegation_approver = Column(String, nullable=False)
 
     operator = relationship("Operator", back_populates="delegation_approver_updates")
 
@@ -147,12 +147,12 @@ class DepositScalingFactorUpdated(BaseEvent):
 # Relationships: Foreign keys to Staker, Operator (delegatedTo).
 class WithdrawalEvent(BaseEvent):
     __tablename__ = "withdrawal_events"
-    withdrawal_root = Column(BYTEA, nullable=False)
+    withdrawal_root = Column(String, nullable=False)
     staker_id = Column(
         String, ForeignKey("stakers.id", ondelete="CASCADE"), nullable=False
     )
     delegated_to_id = Column(String, ForeignKey("operators.id", ondelete="CASCADE"))
-    withdrawer = Column(BYTEA, nullable=False)
+    withdrawer = Column(String, nullable=False)
     nonce = Column(BigInteger, nullable=False)
     start_block = Column(BigInteger)
     strategies = Column(
@@ -277,7 +277,7 @@ class OperatorSlashed(BaseEvent):
 class AVSRegistrarSet(BaseEvent):
     __tablename__ = "avs_registrar_set_events"
     avs_id = Column(String, ForeignKey("avs.id", ondelete="CASCADE"), nullable=False)
-    registrar = Column(BYTEA, nullable=False)
+    registrar = Column(String, nullable=False)
 
     avs = relationship("AVS", back_populates="registrar_set_events")
 
@@ -350,7 +350,7 @@ class RedistributionAddressSet(BaseEvent):
     operator_set_id = Column(
         String, ForeignKey("operator_sets.id", ondelete="CASCADE"), nullable=False
     )
-    redistribution_recipient = Column(BYTEA, nullable=False)
+    redistribution_recipient = Column(String, nullable=False)
 
     operator_set = relationship("OperatorSet", back_populates="redistribution_events")
 
@@ -378,12 +378,12 @@ class StrategyOperatorSetEvent(BaseEvent):
 class RewardsSubmission(BaseEvent):
     __tablename__ = "rewards_submission_events"
     avs_id = Column(String, ForeignKey("avs.id", ondelete="CASCADE"))
-    submitter = Column(BYTEA, nullable=False)
+    submitter = Column(String, nullable=False)
     submission_nonce = Column(BigInteger, nullable=False)
-    rewards_submission_hash = Column(BYTEA, nullable=False)
+    rewards_submission_hash = Column(String, nullable=False)
     submission_type = Column(SQLEnum(RewardsSubmissionType), nullable=False)
     strategies_and_multipliers = Column(JSONB, nullable=False)
-    token = Column(BYTEA, nullable=False)
+    token = Column(String, nullable=False)
     amount = Column(BigInteger, nullable=False)
     start_timestamp = Column(BigInteger, nullable=False)
     duration = Column(BigInteger, nullable=False)
@@ -396,12 +396,12 @@ class RewardsSubmission(BaseEvent):
 # Relationships: Foreign key to AVS.
 class OperatorDirectedAVSRewardsSubmission(BaseEvent):
     __tablename__ = "operator_directed_avs_rewards_submission_events"
-    caller = Column(BYTEA, nullable=False)
+    caller = Column(String, nullable=False)
     avs_id = Column(String, ForeignKey("avs.id", ondelete="CASCADE"), nullable=False)
-    operator_directed_rewards_submission_hash = Column(BYTEA, nullable=False)
+    operator_directed_rewards_submission_hash = Column(String, nullable=False)
     submission_nonce = Column(BigInteger, nullable=False)
     strategies_and_multipliers = Column(JSONB, nullable=False)
-    token = Column(BYTEA, nullable=False)
+    token = Column(String, nullable=False)
     operator_rewards = Column(JSONB, nullable=False)
     start_timestamp = Column(BigInteger, nullable=False)
     duration = Column(BigInteger, nullable=False)
@@ -415,14 +415,14 @@ class OperatorDirectedAVSRewardsSubmission(BaseEvent):
 # Relationships: Foreign key to OperatorSet.
 class OperatorDirectedOperatorSetRewardsSubmission(BaseEvent):
     __tablename__ = "operator_directed_operator_set_rewards_submission_events"
-    caller = Column(BYTEA, nullable=False)
-    operator_directed_rewards_submission_hash = Column(BYTEA, nullable=False)
+    caller = Column(String, nullable=False)
+    operator_directed_rewards_submission_hash = Column(String, nullable=False)
     operator_set_id = Column(
         String, ForeignKey("operator_sets.id", ondelete="CASCADE"), nullable=False
     )
     submission_nonce = Column(BigInteger, nullable=False)
     strategies_and_multipliers = Column(JSONB, nullable=False)
-    token = Column(BYTEA, nullable=False)
+    token = Column(String, nullable=False)
     operator_rewards = Column(JSONB, nullable=False)
     start_timestamp = Column(BigInteger, nullable=False)
     duration = Column(BigInteger, nullable=False)
@@ -438,8 +438,8 @@ class OperatorDirectedOperatorSetRewardsSubmission(BaseEvent):
 # Relationships: No entity references.
 class RewardsUpdaterSet(BaseEvent):
     __tablename__ = "rewards_updater_set_events"
-    old_rewards_updater = Column(BYTEA, nullable=False)
-    new_rewards_updater = Column(BYTEA, nullable=False)
+    old_rewards_updater = Column(String, nullable=False)
+    new_rewards_updater = Column(String, nullable=False)
 
 
 # RewardsForAllSubmitterSet Event
@@ -447,7 +447,7 @@ class RewardsUpdaterSet(BaseEvent):
 # Relationships: No entity references.
 class RewardsForAllSubmitterSet(BaseEvent):
     __tablename__ = "rewards_for_all_submitter_set_events"
-    rewards_for_all_submitter = Column(BYTEA, nullable=False)
+    rewards_for_all_submitter = Column(String, nullable=False)
     old_value = Column(Boolean, nullable=False)
     new_value = Column(Boolean, nullable=False)
 
@@ -475,7 +475,7 @@ class DefaultOperatorSplitBipsSet(BaseEvent):
 # Relationships: Foreign keys to Operator, AVS.
 class OperatorAVSSplitBipsSet(BaseEvent):
     __tablename__ = "operator_avs_split_bips_set_events"
-    caller = Column(BYTEA, nullable=False)
+    caller = Column(String, nullable=False)
     operator_id = Column(
         String, ForeignKey("operators.id", ondelete="CASCADE"), nullable=False
     )
@@ -493,7 +493,7 @@ class OperatorAVSSplitBipsSet(BaseEvent):
 # Relationships: Foreign key to Operator.
 class OperatorPISplitBipsSet(BaseEvent):
     __tablename__ = "operator_pi_split_bips_set_events"
-    caller = Column(BYTEA, nullable=False)
+    caller = Column(String, nullable=False)
     operator_id = Column(
         String, ForeignKey("operators.id", ondelete="CASCADE"), nullable=False
     )
@@ -509,7 +509,7 @@ class OperatorPISplitBipsSet(BaseEvent):
 # Relationships: Foreign keys to Operator, OperatorSet.
 class OperatorSetSplitBipsSet(BaseEvent):
     __tablename__ = "operator_set_split_bips_set_events"
-    caller = Column(BYTEA, nullable=False)
+    caller = Column(String, nullable=False)
     operator_id = Column(
         String, ForeignKey("operators.id", ondelete="CASCADE"), nullable=False
     )
@@ -529,9 +529,9 @@ class OperatorSetSplitBipsSet(BaseEvent):
 # Relationships: No entity references (addresses are Bytes).
 class ClaimerForSet(BaseEvent):
     __tablename__ = "claimer_for_set_events"
-    earner = Column(BYTEA, nullable=False)
-    old_claimer = Column(BYTEA, nullable=False)
-    claimer = Column(BYTEA, nullable=False)
+    earner = Column(String, nullable=False)
+    old_claimer = Column(String, nullable=False)
+    claimer = Column(String, nullable=False)
 
 
 # DistributionRootSubmitted Event
@@ -540,7 +540,7 @@ class ClaimerForSet(BaseEvent):
 class DistributionRootSubmitted(BaseEvent):
     __tablename__ = "distribution_root_submitted_events"
     root_index = Column(BigInteger, nullable=False)
-    root = Column(BYTEA, nullable=False)
+    root = Column(String, nullable=False)
     rewards_calculation_end_timestamp = Column(BigInteger, nullable=False)
     activated_at = Column(BigInteger, nullable=False)
 
@@ -558,11 +558,11 @@ class DistributionRootDisabled(BaseEvent):
 # Relationships: No entity references.
 class RewardsClaimed(BaseEvent):
     __tablename__ = "rewards_claimed_events"
-    root = Column(BYTEA, nullable=False)
-    earner = Column(BYTEA, nullable=False)
-    claimer = Column(BYTEA, nullable=False)
-    recipient = Column(BYTEA, nullable=False)
-    token = Column(BYTEA, nullable=False)
+    root = Column(String, nullable=False)
+    earner = Column(String, nullable=False)
+    claimer = Column(String, nullable=False)
+    recipient = Column(String, nullable=False)
+    token = Column(String, nullable=False)
     claimed_amount = Column(BigInteger, nullable=False)
 
 
@@ -588,8 +588,8 @@ class Deposit(BaseEvent):
 # Relationships: No entity references.
 class StrategyWhitelisterChanged(BaseEvent):
     __tablename__ = "strategy_whitelister_changed_events"
-    previous_address = Column(BYTEA, nullable=False)
-    new_address = Column(BYTEA, nullable=False)
+    previous_address = Column(String, nullable=False)
+    new_address = Column(String, nullable=False)
 
 
 # StrategyWhitelistEvent Event
@@ -728,9 +728,9 @@ class BeaconChainWithdrawal(BaseEvent):
     )
     shares = Column(BigInteger, nullable=False)
     nonce = Column(BigInteger, nullable=False)
-    delegated_address = Column(BYTEA, nullable=False)
-    withdrawer = Column(BYTEA, nullable=False)
-    withdrawal_root = Column(BYTEA, nullable=False)
+    delegated_address = Column(String, nullable=False)
+    withdrawer = Column(String, nullable=False)
+    withdrawal_root = Column(String, nullable=False)
 
     pod = relationship("EigenPod", back_populates="beacon_chain_withdrawal_events")
     pod_owner = relationship("Staker", back_populates="beacon_chain_withdrawal_events")
@@ -746,9 +746,9 @@ class BeaconChainETHWithdrawalCompleted(BaseEvent):
     )
     shares = Column(BigInteger, nullable=False)
     nonce = Column(BigInteger, nullable=False)
-    delegated_address = Column(BYTEA, nullable=False)
-    withdrawer = Column(BYTEA, nullable=False)
-    withdrawal_root = Column(BYTEA, nullable=False)
+    delegated_address = Column(String, nullable=False)
+    withdrawer = Column(String, nullable=False)
+    withdrawal_root = Column(String, nullable=False)
 
     pod_owner = relationship("Staker")
 
@@ -788,4 +788,4 @@ class PectraForkTimestampSet(BaseEvent):
 # Relationships: No entity references.
 class ProofTimestampSetterSet(BaseEvent):
     __tablename__ = "proof_timestamp_setter_set_events"
-    new_proof_timestamp_setter = Column(BYTEA, nullable=False)
+    new_proof_timestamp_setter = Column(String, nullable=False)
