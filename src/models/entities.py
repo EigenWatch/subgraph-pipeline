@@ -1,7 +1,7 @@
 # models/entities.py
 from sqlalchemy import Column, String, BigInteger, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import BYTEA, ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from .base import Base, TimestampMixin
 import enum
 
@@ -57,7 +57,7 @@ class PodSharesUpdateType(enum.Enum):
 class Operator(Base, TimestampMixin):
     __tablename__ = "operators"
     id = Column(String, primary_key=True)  # operator address as string (hex)
-    address = Column(BYTEA, nullable=False)
+    address = Column(String, nullable=False)
 
     registration_events = relationship("OperatorRegistered", back_populates="operator")
     share_events = relationship("OperatorShareEvent", back_populates="operator")
@@ -86,7 +86,7 @@ class Operator(Base, TimestampMixin):
 class Staker(Base, TimestampMixin):
     __tablename__ = "stakers"
     id = Column(String, primary_key=True)  # staker address as string (hex)
-    address = Column(BYTEA, nullable=False)
+    address = Column(String, nullable=False)
 
     delegation_events = relationship("StakerDelegationEvent", back_populates="staker")
     share_events = relationship("OperatorShareEvent", back_populates="staker")
@@ -119,7 +119,7 @@ class Staker(Base, TimestampMixin):
 class AVS(Base, TimestampMixin):
     __tablename__ = "avs"
     id = Column(String, primary_key=True)  # avs address as string (hex)
-    address = Column(BYTEA, nullable=False)
+    address = Column(String, nullable=False)
 
     operator_registration_events = relationship(
         "OperatorAVSRegistrationStatusUpdated", back_populates="avs"
@@ -141,7 +141,7 @@ class AVS(Base, TimestampMixin):
 class Strategy(Base, TimestampMixin):
     __tablename__ = "strategies"
     id = Column(String, primary_key=True)  # strategy address as string (hex)
-    address = Column(BYTEA, nullable=False)
+    address = Column(String, nullable=False)
 
     deposit_events = relationship("Deposit", back_populates="strategy")
     share_events = relationship("OperatorShareEvent", back_populates="strategy")
@@ -190,7 +190,7 @@ class OperatorSet(Base, TimestampMixin):
 class EigenPod(Base, TimestampMixin):
     __tablename__ = "eigen_pods"
     id = Column(String, primary_key=True)  # pod address as string (hex)
-    address = Column(BYTEA, nullable=False)
+    address = Column(String, nullable=False)
     owner_id = Column(
         String, ForeignKey("stakers.id", ondelete="CASCADE"), nullable=False
     )
