@@ -3,12 +3,17 @@ Event extraction and loading assets.
 Combines extraction, transformation, entity upserts, and event loading.
 """
 
-import json
 from typing import Dict, Any, Optional
 import dagster as dg
 import pandas as pd
 
-from config.event_config import OPERATOR_EVENT_CONFIGS, EventConfig
+from config.allocation_manager import ALLOCATION_MANAGER_EVENT_CONFIGS
+from config.avs_directory import AVS_DIRECTORY_EVENT_CONFIGS
+from config.delegation_manager import DELEGATION_MANAGER_EVENT_CONFIGS
+from config.eigenpod_manager import EIGENPOD_MANAGER_EVENT_CONFIGS
+from config.event_config import EventConfig
+from config.rewards_coordinator import REWARDS_COORDINATOR_EVENT_CONFIGS
+from config.strategy_manager import STRATEGY_MANAGER_EVENT_CONFIGS
 from database.database_client import DatabaseClient
 from database.entity_manager import EntityManager
 from database.event_loader import EventLoader
@@ -239,6 +244,18 @@ def create_event_extraction_and_load_assets(
                         stats = entity_manager.upsert_strategies(
                             session, entity_ids, context
                         )
+                    elif entity_type == "OperatorSet":
+                        # Extract operator set data (returns List[Dict])
+                        operator_set_data = extractor(transform_output)
+                        stats = entity_manager.upsert_operator_sets(
+                            session, operator_set_data, context
+                        )
+                    elif entity_type == "EigenPod":
+                        # Extract eigen pod data (returns List[Dict])
+                        pod_data = extractor(transform_output)
+                        stats = entity_manager.upsert_eigen_pods(
+                            session, pod_data, context
+                        )
                     else:
                         context.log.warning(f"Unknown entity type: {entity_type}")
                         stats = {"inserted": 0, "updated": 0, "skipped": 0}
@@ -361,21 +378,26 @@ def create_event_extraction_and_load_assets(
     return [_extract_event, _transform_event, _upsert_entities, _load_event]
 
 
-# Generate all assets programmatically
-def generate_all_operator_event_assets():
+# Generate selected assets programmatically
+def generate_event_assets(selected_event_configs: Dict[str, Dict[str, Any]]):
     """
-    Generate all operator event assets from registry with sequential chaining.
+    Generate event assets from a provided subset of event configs.
 
-    This ensures that each event group waits for the previous one to complete,
-    naturally spacing out the subgraph calls without artificial delays.
+    Args:
+        selected_event_configs: Dictionary mapping event_name -> config to generate assets for.
+
+    Returns:
+        List of generated asset names.
     """
     assets = []
     previous_group_final_asset = None
 
-    for i, (event_name, config) in enumerate(OPERATOR_EVENT_CONFIGS.items()):
+    for i, (event_name, config) in enumerate(selected_event_configs.items()):
         # Create assets for this event group
         event_assets = create_event_extraction_and_load_assets(
-            config=config, first=5, upstream_dependency=previous_group_final_asset
+            config=config,
+            first=1,
+            upstream_dependency=previous_group_final_asset,
         )
 
         assets.extend(event_assets)
@@ -383,16 +405,30 @@ def generate_all_operator_event_assets():
         # The last asset (_load_event) becomes the dependency for the next group
         previous_group_final_asset = f"load_{config['table_name']}"
 
-        # Optional: Log the chain being built
+        # Optional logging
         if i == 0:
             print(f"Starting chain with {event_name}")
         else:
             print(f"Chaining {event_name} after previous group")
 
     print(
-        f"Generated {len(assets)} assets across {len(OPERATOR_EVENT_CONFIGS)} event groups"
+        f"Generated {len(assets)} assets across {len(selected_event_configs)} event groups"
     )
     return assets
 
 
-operator_event_assets = generate_all_operator_event_assets()
+# -----------------------------
+# Generate assets for each event group
+# -----------------------------
+strategy_manager_event_assets = generate_event_assets(STRATEGY_MANAGER_EVENT_CONFIGS)
+avs_directory_event_assets = generate_event_assets(AVS_DIRECTORY_EVENT_CONFIGS)
+eigenpod_manager_event_assets = generate_event_assets(EIGENPOD_MANAGER_EVENT_CONFIGS)
+delegation_manager_event_assets = generate_event_assets(
+    DELEGATION_MANAGER_EVENT_CONFIGS
+)
+allocation_manager_event_assets = generate_event_assets(
+    ALLOCATION_MANAGER_EVENT_CONFIGS
+)
+rewards_coordinator_event_assets = generate_event_assets(
+    REWARDS_COORDINATOR_EVENT_CONFIGS
+)

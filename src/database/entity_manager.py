@@ -1,58 +1,67 @@
-"""
-Entity manager for upserting lookup entities (Operator, Staker, AVS, etc.)
-Handles idempotent inserts with conflict resolution.
-"""
-
-from typing import List, Dict
+from typing import List, Dict, Any
 from datetime import datetime, timezone
-
-import dagster as dg
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
+import dagster as dg
 
-from models.entities import Operator
+from models.entities import Operator, Staker, AVS, Strategy, OperatorSet, EigenPod
 
 
 class EntityManager(dg.ConfigurableResource):
     """
-    Manages upserts for entity lookup tables.
-    All methods are idempotent and safe to call multiple times.
+    Unified entity manager with generic upsert for simple address-based entities.
     """
 
-    def upsert_operators(
+    # =================================================================== #
+    # GENERIC: Simple address-based entities (Operator, Staker, AVS, Strategy)
+    # =================================================================== #
+    def _upsert_simple(
         self,
         session: Session,
-        operator_ids: List[str],
+        model: Any,
+        entity_ids: List[str],
         context: dg.OpExecutionContext = None,
     ) -> Dict[str, int]:
-        if not operator_ids:
+        """
+        Generic upsert for entities where:
+        - PK = `id` (string)
+        - `address` = `id`
+        - No foreign keys
+        """
+        if not entity_ids:
             return {"inserted": 0, "updated": 0, "skipped": 0}
 
-        unique_ids = list(set(operator_ids))
+        unique_ids = list(set(entity_ids))
         inserted = updated = skipped = 0
+        now = datetime.now(timezone.utc)
 
-        for operator_id in unique_ids:
+        for entity_id in unique_ids:
             try:
                 stmt = (
-                    insert(Operator)
+                    insert(model)
                     .values(
-                        id=operator_id,
-                        address=operator_id,
-                        created_at=datetime.now(timezone.utc),
-                        updated_at=datetime.now(timezone.utc),
+                        id=entity_id,
+                        address=entity_id,
+                        created_at=now,
+                        updated_at=now,
                     )
                     .on_conflict_do_update(
                         index_elements=["id"],
-                        set_={"updated_at": datetime.now(timezone.utc)},
+                        set_={"updated_at": now},
                     )
-                    .returning(Operator.id, Operator.created_at, Operator.updated_at)
+                    .returning(
+                        model.id,
+                        model.created_at,
+                        model.updated_at,
+                    )
                 )
 
                 result = session.execute(stmt)
                 row = result.fetchone()
 
                 if row:
-                    if row.created_at == row.updated_at:
+                    # Access by index instead of attribute names
+                    if row[1] == row[2]:  # created_at == updated_at
                         inserted += 1
                     else:
                         updated += 1
@@ -61,68 +70,183 @@ class EntityManager(dg.ConfigurableResource):
 
             except Exception as e:
                 if context:
-                    context.log.warning(f"Failed to upsert operator {operator_id}: {e}")
+                    context.log.warning(
+                        f"Failed to upsert {model.__tablename__} {entity_id}: {e}"
+                    )
                 skipped += 1
                 continue
 
         if context:
             context.log.info(
-                f"Operator upsert: {inserted} inserted, {updated} updated, {skipped} skipped "
-                f"out of {len(unique_ids)} total"
+                f"{model.__name__} upsert: {inserted} inserted, "
+                f"{updated} updated, {skipped} skipped out of {len(unique_ids)}"
             )
 
         return {"inserted": inserted, "updated": updated, "skipped": skipped}
 
-    def upsert_stakers(
-        self,
-        session: Session,
-        staker_ids: List[str],
-        context: dg.OpExecutionContext = None,
-    ) -> Dict[str, int]:
-        """
-        Upsert stakers by ID (address).
-        Implementation follows same pattern as upsert_operators.
-        TODO: Implement when we add staker events.
-        """
-        # Placeholder for future implementation
-        return {"inserted": 0, "updated": 0, "skipped": 0}
+    # =================================================================== #
+    # Public wrappers — clean API, no duplication
+    # =================================================================== #
+    def upsert_operators(self, session: Session, operator_ids: List[str], context=None):
+        return self._upsert_simple(session, Operator, operator_ids, context)
 
-    def upsert_avs(
-        self,
-        session: Session,
-        avs_ids: List[str],
-        context: dg.OpExecutionContext = None,
-    ) -> Dict[str, int]:
-        """
-        Upsert AVS by ID (address).
-        TODO: Implement when we add AVS events.
-        """
-        return {"inserted": 0, "updated": 0, "skipped": 0}
+    def upsert_stakers(self, session: Session, staker_ids: List[str], context=None):
+        return self._upsert_simple(session, Staker, staker_ids, context)
+
+    def upsert_avs(self, session: Session, avs_ids: List[str], context=None):
+        return self._upsert_simple(session, AVS, avs_ids, context)
 
     def upsert_strategies(
-        self,
-        session: Session,
-        strategy_ids: List[str],
-        context: dg.OpExecutionContext = None,
-    ) -> Dict[str, int]:
-        """
-        Upsert strategies by ID (address).
-        TODO: Implement when we add strategy events.
-        """
-        return {"inserted": 0, "updated": 0, "skipped": 0}
+        self, session: Session, strategy_ids: List[str], context=None
+    ):
+        return self._upsert_simple(session, Strategy, strategy_ids, context)
 
+    # =================================================================== #
+    # SPECIAL: OperatorSet (composite key)
+    # =================================================================== #
     def upsert_operator_sets(
         self,
         session: Session,
-        operator_set_data: List[Dict[str, any]],
+        operator_set_data: List[Dict[str, Any]],
         context: dg.OpExecutionContext = None,
     ) -> Dict[str, int]:
-        """
-        Upsert operator sets (composite key: avs_id + operator_set_id).
+        if not operator_set_data:
+            return {"inserted": 0, "updated": 0, "skipped": 0}
 
-        Args:
-            operator_set_data: List of dicts with keys: id, avs_id, operator_set_id
+        inserted = updated = skipped = 0
+        now = datetime.now(timezone.utc)
 
-        TODO: Implement when we add operator set events.
-        """
-        return {"inserted": 0, "updated": 0, "skipped": 0}
+        for entry in operator_set_data:
+            avs_id = entry.get("avs_id")
+            op_set_id = entry.get("operator_set_id")
+            composite_id = entry.get("id") or f"{avs_id}-{op_set_id}"
+
+            if not avs_id or op_set_id is None:
+                if context:
+                    context.log.warning(f"Invalid operator set data: {entry}")
+                skipped += 1
+                continue
+
+            try:
+                stmt = (
+                    insert(OperatorSet)
+                    .values(
+                        id=composite_id,
+                        avs_id=avs_id,
+                        operator_set_id=op_set_id,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    .on_conflict_do_update(
+                        index_elements=["id"],
+                        set_={"updated_at": now},
+                    )
+                    .returning(
+                        OperatorSet.id,
+                        OperatorSet.created_at,
+                        OperatorSet.updated_at,
+                    )
+                )
+                result = session.execute(stmt)
+                row = result.fetchone()
+
+                if row:
+                    # Access by index
+                    if row[1] == row[2]:  # created_at == updated_at
+                        inserted += 1
+                    else:
+                        updated += 1
+                else:
+                    skipped += 1
+
+            except Exception as e:
+                if context:
+                    context.log.warning(
+                        f"Failed to upsert operator set {composite_id}: {e}"
+                    )
+                skipped += 1
+                continue
+
+        if context:
+            context.log.info(
+                f"OperatorSet upsert: {inserted} inserted, {updated} updated, "
+                f"{skipped} skipped out of {len(operator_set_data)}"
+            )
+        return {"inserted": inserted, "updated": updated, "skipped": skipped}
+
+    # =================================================================== #
+    # SPECIAL: EigenPod (FK to Staker)
+    # =================================================================== #
+    def upsert_eigen_pods(
+        self,
+        session: Session,
+        pod_data: List[Dict[str, str]],
+        context: dg.OpExecutionContext = None,
+    ) -> Dict[str, int]:
+        if not pod_data:
+            return {"inserted": 0, "updated": 0, "skipped": 0}
+
+        inserted = updated = skipped = 0
+        now = datetime.now(timezone.utc)
+
+        for entry in pod_data:
+            pod_address = entry.get("address")
+            owner_id = entry.get("owner_id")
+            pod_id = entry.get("id") or pod_address
+
+            if not pod_address or not owner_id:
+                if context:
+                    context.log.warning(
+                        f"Invalid EigenPod data (missing address/owner): {entry}"
+                    )
+                skipped += 1
+                continue
+
+            try:
+                stmt = (
+                    insert(EigenPod)
+                    .values(
+                        id=pod_id,
+                        address=pod_address,
+                        owner_id=owner_id,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    .on_conflict_do_update(
+                        index_elements=["id"],
+                        set_={
+                            "owner_id": owner_id,
+                            "updated_at": now,
+                        },
+                        where=(EigenPod.owner_id != owner_id),
+                    )
+                    .returning(
+                        EigenPod.id,
+                        EigenPod.created_at,
+                        EigenPod.updated_at,
+                    )
+                )
+                result = session.execute(stmt)
+                row = result.fetchone()
+
+                if row:
+                    # Access by index
+                    if row[1] == row[2]:  # created_at == updated_at
+                        inserted += 1
+                    else:
+                        updated += 1
+                else:
+                    skipped += 1
+
+            except Exception as e:
+                if context:
+                    context.log.warning(f"Failed to upsert EigenPod {pod_id}: {e}")
+                skipped += 1
+                continue
+
+        if context:
+            context.log.info(
+                f"EigenPod upsert: {inserted} inserted, {updated} updated, "
+                f"{skipped} skipped out of {len(pod_data)}"
+            )
+        return {"inserted": inserted, "updated": updated, "skipped": skipped}
