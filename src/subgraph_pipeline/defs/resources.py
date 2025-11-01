@@ -13,6 +13,15 @@ all_operator_events_job = dg.define_asset_job(
     description="Process all operator events sequentially",
 )
 
+# Schedule to run 4 times a day at equal intervals (every 6 hours)
+# Runs at: 00:00, 06:00, 12:00, 18:00 UTC
+operator_events_schedule = dg.ScheduleDefinition(
+    job=all_operator_events_job,
+    cron_schedule="0 0,6,12,18 * * *",  # At minute 0 of hours 0, 6, 12, and 18
+    name="operator_events_4x_daily",
+    description="Run operator event extraction 4 times daily at 6-hour intervals",
+)
+
 
 @dg.definitions
 def resources():
@@ -33,4 +42,5 @@ def resources():
             "transformer": EventTransformer(),
         },
         jobs=[all_operator_events_job],
+        schedules=[operator_events_schedule],
     )
