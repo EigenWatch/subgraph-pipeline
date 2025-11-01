@@ -9,18 +9,31 @@ class SubgraphQueryBuilder(ConfigurableResource):
     """
 
     def _build_where_clause(self, **filters: Dict[str, Any]) -> str:
-        """Convert Python filters into GraphQL 'where' clause syntax."""
+        """Convert Python filters (including nested or arrays) into GraphQL 'where' syntax."""
         if not filters:
             return ""
+
+        def serialize(value: Any) -> str:
+            if isinstance(value, str):
+                return f'"{value}"'
+            elif isinstance(value, dict):
+                return (
+                    "{"
+                    + ", ".join(f"{k}: {serialize(v)}" for k, v in value.items())
+                    + "}"
+                )
+            elif isinstance(value, list):
+                return "[" + ", ".join(serialize(v) for v in value) + "]"
+            else:
+                return str(value)
 
         parts = []
         for k, v in filters.items():
             if v is None:
                 continue
-            value = f'"{v}"' if isinstance(v, str) else v
-            parts.append(f"{k}: {value}")
+            parts.append(f"{k}: {serialize(v)}")
 
-        return f"(where: {{{', '.join(parts)}}})" if parts else ""
+        return f"where: {{{', '.join(parts)}}}" if parts else ""
 
     def _build_fields_block(
         self,
@@ -41,6 +54,32 @@ class SubgraphQueryBuilder(ConfigurableResource):
                 lines.append(field)
         return "\n".join(lines)
 
+    def _build_cursor_filter(self, cursor: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Build a cursor filter for (blockNumber, logIndex) based pagination.
+        Generates:
+          or: [
+            { blockNumber_gt: cursor.blockNumber }
+            { blockNumber: cursor.blockNumber, logIndex_gt: cursor.logIndex }
+          ]
+        """
+        if not cursor or "blockNumber" not in cursor:
+            return {}
+
+        block_number = cursor["blockNumber"]
+        log_index = cursor.get("logIndex")
+
+        if log_index is not None:
+            return {
+                "or": [
+                    {"blockNumber_gt": block_number},
+                    {"blockNumber": block_number, "logIndex_gt": log_index},
+                ]
+            }
+        else:
+            # fallback: only use block number
+            return {"blockNumber_gt": block_number}
+
     def build_query(
         self,
         event_name: str,
@@ -53,17 +92,12 @@ class SubgraphQueryBuilder(ConfigurableResource):
         order_direction: str = "asc",
         extra_filters: Optional[Dict[str, Any]] = None,
         nested_fields: Optional[Dict[str, List[str]]] = None,
+        cursor: Optional[Dict[str, Any]] = None,  # 👈 NEW
     ) -> str:
         """
         Build a complete GraphQL query for subgraph event fetching.
-
-        Args:
-            event_name: The event entity to query (e.g., "operatorRegistereds")
-            fields: Top-level fields to include
-            nested_fields: Dict specifying which fields have subfields, e.g.
-                {"operator": ["id", "address"]}
         """
-        filters = {}
+        filters: Dict[str, Any] = {}
 
         if last_id:
             filters["id_gt"] = last_id
@@ -71,12 +105,17 @@ class SubgraphQueryBuilder(ConfigurableResource):
             filters["blockNumber_gte"] = block_number_gte
         if block_number_lt is not None:
             filters["blockNumber_lt"] = block_number_lt
+
+        # add cursor logic
+        if cursor:
+            cursor_filter = self._build_cursor_filter(cursor)
+            filters.update(cursor_filter)
+
         if extra_filters:
             filters.update(extra_filters)
 
         where_clause = self._build_where_clause(**filters)
 
-        # Build full field structure with nested selections
         fields_block = self._build_fields_block(fields, nested_fields)
 
         query = f"""

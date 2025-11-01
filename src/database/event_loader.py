@@ -8,7 +8,7 @@ import json
 
 import dagster as dg
 import pandas as pd
-from sqlalchemy import Table, MetaData, case, literal_column
+from sqlalchemy import Table, MetaData, case, desc, literal_column
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -224,3 +224,27 @@ class EventLoader(dg.ConfigurableResource):
 
         result = query.first()
         return result[0] if result else None
+
+    def get_last_cursor(self, session: Session, table_name: str):
+        """
+        Get the last processed (block_number, log_index) for incremental loading.
+
+        Args:
+            session: SQLAlchemy session
+            table_name: Event table name
+
+        Returns:
+            Tuple (block_number, log_index) or (None, None) if table is empty
+        """
+        metadata = MetaData()
+        metadata.reflect(bind=session.bind, only=[table_name])
+        table = metadata.tables[table_name]
+
+        query = (
+            session.query(table.c.block_number, table.c.log_index)
+            .order_by(desc(table.c.block_number), desc(table.c.log_index))
+            .limit(1)
+        )
+
+        result = query.first()
+        return (result.block_number, result.log_index) if result else (None, None)

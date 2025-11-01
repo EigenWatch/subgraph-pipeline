@@ -70,18 +70,40 @@ def create_event_extraction_and_load_assets(
 
         # Check for last processed block for incremental loading
         with db_client.get_session() as session:
-            last_block = event_loader.get_last_processed_block(
-                session, config["table_name"]
-            )
+            # Get last cursor from DB (blockNumber + logIndex)
+            last_cursor = event_loader.get_last_cursor(session, config["table_name"])
 
-        # Build query with optional block filter
+        # Default values
+        cursor = None
         block_number_gte = None
-        if last_block is not None:
-            block_number_gte = last_block + 1
-            context.log.info(
-                f"Incremental load: starting from block {block_number_gte}"
-            )
 
+        # Prefer cursor-based pagination if available
+        if last_cursor:
+            block_number, log_index = last_cursor
+            cursor = {
+                "blockNumber": block_number,
+                "logIndex": log_index or 0,  # fallback to 0 if missing
+            }
+            context.log.info(
+                f"Incremental load using cursor: block {cursor['blockNumber']}, logIndex {cursor['logIndex']}"
+            )
+        else:
+            # Fallback: start from next block after last processed
+            with db_client.get_session() as session:
+                last_block = event_loader.get_last_processed_block(
+                    session, config["table_name"]
+                )
+            if last_block is not None:
+                block_number_gte = last_block + 1
+                context.log.info(
+                    f"Incremental load: starting from block {block_number_gte}"
+                )
+            else:
+                context.log.info(
+                    "No previous cursor or block found — full load will run."
+                )
+
+        # ✅ Build query dynamically
         query = query_builder.build_query(
             event_name=config["graphql_name"],
             fields=config["fields"],
@@ -89,7 +111,12 @@ def create_event_extraction_and_load_assets(
             order_by=order_by,
             order_direction=order_direction,
             nested_fields=config.get("nested_fields"),
-            block_number_gte=block_number_gte,
+            cursor=cursor if cursor else None,
+            block_number_gte=(
+                None
+                if cursor
+                else (block_number_gte if last_block is not None else None)
+            ),
         )
 
         debug_print(query)
