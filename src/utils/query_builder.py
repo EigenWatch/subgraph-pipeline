@@ -107,7 +107,7 @@ class SubgraphQueryBuilder(ConfigurableResource):
             filters["blockNumber_lt"] = block_number_lt
 
         # add cursor logic
-        if cursor:
+        if cursor and cursor.get("blockNumber") is not None:
             cursor_filter = self._build_cursor_filter(cursor)
             filters.update(cursor_filter)
 

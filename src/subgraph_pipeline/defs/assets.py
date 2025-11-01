@@ -3,7 +3,8 @@ Event extraction and loading assets.
 Combines extraction, transformation, entity upserts, and event loading.
 """
 
-from typing import Dict, Any
+import json
+from typing import Dict, Any, Optional
 import dagster as dg
 import pandas as pd
 
@@ -22,6 +23,7 @@ def create_event_extraction_and_load_assets(
     first: int = 100,
     order_by: str = "blockNumber",
     order_direction: str = "asc",
+    upstream_dependency: Optional[Any] = None,
 ) -> list[dg.AssetsDefinition]:
     """
     Factory function to create event extraction + load assets.
@@ -48,8 +50,15 @@ def create_event_extraction_and_load_assets(
     upsert_asset_name = f"upsert_entities_{config['table_name']}"
     load_asset_name = f"load_{config['table_name']}"
 
+    # Build the dependency list for the extract asset
+    # This ensures it waits for the previous group to complete
+    extract_deps = {}
+    if upstream_dependency is not None:
+        extract_deps = {"upstream_completion": dg.AssetIn(key=upstream_dependency)}
+
     @dg.asset(
         name=extract_asset_name,
+        ins=extract_deps,
         group_name=config["group_name"],
     )
     def _extract_event(
@@ -58,6 +67,7 @@ def create_event_extraction_and_load_assets(
         subgraph_client: SubgraphClient,
         db_client: DatabaseClient,
         event_loader: EventLoader,
+        **kwargs,
     ) -> Dict[str, Any] | None:
         """
         Extract {config['graphql_name']} events from subgraph.
@@ -354,13 +364,34 @@ def create_event_extraction_and_load_assets(
 # Generate all assets programmatically
 def generate_all_operator_event_assets():
     """
-    Generate all operator event assets from registry.
-    Use this if you prefer programmatic generation over explicit definitions.
+    Generate all operator event assets from registry with sequential chaining.
+
+    This ensures that each event group waits for the previous one to complete,
+    naturally spacing out the subgraph calls without artificial delays.
     """
     assets = []
-    for event_name, config in OPERATOR_EVENT_CONFIGS.items():
-        event_assets = create_event_extraction_and_load_assets(config=config, first=5)
+    previous_group_final_asset = None
+
+    for i, (event_name, config) in enumerate(OPERATOR_EVENT_CONFIGS.items()):
+        # Create assets for this event group
+        event_assets = create_event_extraction_and_load_assets(
+            config=config, first=5, upstream_dependency=previous_group_final_asset
+        )
+
         assets.extend(event_assets)
+
+        # The last asset (_load_event) becomes the dependency for the next group
+        previous_group_final_asset = f"load_{config['table_name']}"
+
+        # Optional: Log the chain being built
+        if i == 0:
+            print(f"Starting chain with {event_name}")
+        else:
+            print(f"Chaining {event_name} after previous group")
+
+    print(
+        f"Generated {len(assets)} assets across {len(OPERATOR_EVENT_CONFIGS)} event groups"
+    )
     return assets
 
 

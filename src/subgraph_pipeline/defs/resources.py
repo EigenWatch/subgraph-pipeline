@@ -7,6 +7,12 @@ from utils.event_transformers import EventTransformer
 from utils.query_builder import SubgraphQueryBuilder
 from utils.subgraph_client import SubgraphClient
 
+all_operator_events_job = dg.define_asset_job(
+    name="all_operator_events",
+    selection="*",
+    description="Process all operator events sequentially",
+)
+
 
 @dg.definitions
 def resources():
@@ -25,5 +31,6 @@ def resources():
             "entity_manager": EntityManager(),
             "event_loader": EventLoader(),
             "transformer": EventTransformer(),
-        }
+        },
+        jobs=[all_operator_events_job],
     )

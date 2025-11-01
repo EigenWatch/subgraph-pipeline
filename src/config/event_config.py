@@ -29,6 +29,7 @@ OPERATOR_REGISTERED_CONFIG: EventConfig = {
     "table_name": "operator_registered_events",
     "fields": [
         "id",
+        "logIndex",
         "transactionHash",
         "blockNumber",
         "blockTimestamp",
@@ -45,6 +46,7 @@ OPERATOR_REGISTERED_CONFIG: EventConfig = {
         .tolist()
     },
     "column_mapping": {
+        "logIndex": "log_index",
         "transactionHash": "transaction_hash",
         "blockNumber": "block_number",
         "blockTimestamp": "block_timestamp",
@@ -95,6 +97,7 @@ DELEGATION_APPROVER_UPDATED_CONFIG: EventConfig = {
     "table_name": "delegation_approver_updated_events",
     "fields": [
         "id",
+        "logIndex",
         "transactionHash",
         "blockNumber",
         "blockTimestamp",
@@ -111,6 +114,7 @@ DELEGATION_APPROVER_UPDATED_CONFIG: EventConfig = {
         .tolist()
     },
     "column_mapping": {
+        "logIndex": "log_index",
         "transactionHash": "transaction_hash",
         "blockNumber": "block_number",
         "blockTimestamp": "block_timestamp",
@@ -128,10 +132,11 @@ DELEGATION_APPROVER_UPDATED_CONFIG: EventConfig = {
 # ============================================================================
 
 ALLOCATION_DELAY_SET_CONFIG: EventConfig = {
-    "graphql_name": "allocationDelaysSets",
+    "graphql_name": "allocationDelaySets",
     "table_name": "allocation_delay_set_events",
     "fields": [
         "id",
+        "logIndex",
         "transactionHash",
         "blockNumber",
         "blockTimestamp",
@@ -149,6 +154,7 @@ ALLOCATION_DELAY_SET_CONFIG: EventConfig = {
         .tolist()
     },
     "column_mapping": {
+        "logIndex": "log_index",
         "transactionHash": "transaction_hash",
         "blockNumber": "block_number",
         "blockTimestamp": "block_timestamp",
