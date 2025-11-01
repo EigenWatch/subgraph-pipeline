@@ -25,50 +25,33 @@ class EntityManager(dg.ConfigurableResource):
         operator_ids: List[str],
         context: dg.OpExecutionContext = None,
     ) -> Dict[str, int]:
-        """
-        Upsert operators by ID (address).
-
-        Args:
-            session: SQLAlchemy session
-            operator_ids: List of operator addresses (hex strings)
-            context: Dagster context for logging
-
-        Returns:
-            {"inserted": X, "updated": Y, "skipped": Z}
-        """
         if not operator_ids:
             return {"inserted": 0, "updated": 0, "skipped": 0}
 
-        # Remove duplicates
         unique_ids = list(set(operator_ids))
-
-        inserted = 0
-        updated = 0
-        skipped = 0
+        inserted = updated = skipped = 0
 
         for operator_id in unique_ids:
             try:
-                # Use PostgreSQL INSERT ... ON CONFLICT
-                stmt = insert(Operator).values(
-                    id=operator_id,
-                    address=operator_id,
-                    created_at=datetime.now(timezone.utc),
-                    updated_at=datetime.now(timezone.utc),
+                stmt = (
+                    insert(Operator)
+                    .values(
+                        id=operator_id,
+                        address=operator_id,
+                        created_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc),
+                    )
+                    .on_conflict_do_update(
+                        index_elements=["id"],
+                        set_={"updated_at": datetime.now(timezone.utc)},
+                    )
+                    .returning(Operator.id, Operator.created_at, Operator.updated_at)
                 )
 
-                # On conflict, update the updated_at timestamp
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["id"],
-                    set_={
-                        "updated_at": datetime.now(timezone.utc),
-                    },
-                ).returning(Operator.id, Operator.created_at, Operator.updated_at)
-
                 result = session.execute(stmt)
+                row = result.fetchone()
 
-                # Check if row was inserted or updated
-                if result.rowcount > 0:
-                    row = result.fetchone()
+                if row:
                     if row.created_at == row.updated_at:
                         inserted += 1
                     else:
@@ -84,15 +67,11 @@ class EntityManager(dg.ConfigurableResource):
 
         if context:
             context.log.info(
-                f"Operator upsert: {inserted} inserted, {updated} updated, "
-                f"{skipped} skipped out of {len(unique_ids)} total"
+                f"Operator upsert: {inserted} inserted, {updated} updated, {skipped} skipped "
+                f"out of {len(unique_ids)} total"
             )
 
-        return {
-            "inserted": inserted,
-            "updated": updated,
-            "skipped": skipped,
-        }
+        return {"inserted": inserted, "updated": updated, "skipped": skipped}
 
     def upsert_stakers(
         self,

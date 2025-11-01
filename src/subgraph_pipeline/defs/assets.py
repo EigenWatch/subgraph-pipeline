@@ -17,20 +17,20 @@ from utils.subgraph_client import SubgraphClient
 from utils.debug_print import debug_print
 
 
-def create_event_extraction_and_load_asset(
+def create_event_extraction_and_load_assets(
     config: EventConfig,
     first: int = 100,
     order_by: str = "blockNumber",
     order_direction: str = "asc",
-) -> dg.AssetsDefinition:
+) -> list[dg.AssetsDefinition]:
     """
     Factory function to create event extraction + load assets.
 
-    This creates a single asset that:
-    1. Extracts events from subgraph
-    2. Transforms data (flatten, type conversions)
-    3. Upserts dependent entities (Operator, etc.)
-    4. Loads events into database
+    This creates multiple assets that:
+    1. Extract events from subgraph
+    2. Transform data (flatten, type conversions)
+    3. Upsert dependent entities (Operator, etc.)
+    4. Load events into database
 
     Args:
         config: EventConfig from event_registry
@@ -39,30 +39,28 @@ def create_event_extraction_and_load_asset(
         order_direction: 'asc' or 'desc'
 
     Returns:
-        Dagster AssetsDefinition
+        List of Dagster AssetsDefinition
     """
 
+    # Define asset names for dependency resolution
+    extract_asset_name = f"extract_{config['table_name']}"
+    transform_asset_name = f"transform_{config['table_name']}"
+    upsert_asset_name = f"upsert_entities_{config['table_name']}"
+    load_asset_name = f"load_{config['table_name']}"
+
     @dg.asset(
-        name=f"load_{config['table_name']}",
+        name=extract_asset_name,
         group_name=config["group_name"],
-        metadata={
-            "event_type": config["graphql_name"],
-            "table": config["table_name"],
-            "contract": config["contract_source"],
-            "entities": config["entity_dependencies"],
-        },
     )
-    def _extract_and_load_event(
+    def _extract_event(
         context: dg.OpExecutionContext,
         query_builder: SubgraphQueryBuilder,
         subgraph_client: SubgraphClient,
         db_client: DatabaseClient,
-        entity_manager: EntityManager,
         event_loader: EventLoader,
-        transformer: EventTransformer,
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Any] | None:
         """
-        Extract {config['graphql_name']} events and load to {config['table_name']}.
+        Extract {config['graphql_name']} events from subgraph.
         """
 
         # ========================================
@@ -79,8 +77,10 @@ def create_event_extraction_and_load_asset(
         # Build query with optional block filter
         block_number_gte = None
         if last_block is not None:
-            block_number_gte = last_block
-            context.log.info(f"Incremental load: starting from block {last_block + 1}")
+            block_number_gte = last_block + 1
+            context.log.info(
+                f"Incremental load: starting from block {block_number_gte}"
+            )
 
         query = query_builder.build_query(
             event_name=config["graphql_name"],
@@ -104,26 +104,68 @@ def create_event_extraction_and_load_asset(
         data = response.get("data", {}).get(config["graphql_name"], [])
         if not data:
             context.log.warning(f"No new {config['graphql_name']} found.")
-            return {
-                "status": "no_new_data",
-                "events_fetched": 0,
-                "last_block": last_block,
-            }
+            return None
 
         df = pd.DataFrame(data)
         context.log.info(f"Fetched {len(df)} {config['graphql_name']} events.")
         debug_print(df.head())
+
+        return {"df": df, "data": data}
+
+    @dg.asset(
+        name=transform_asset_name,
+        group_name=config["group_name"],
+        ins={
+            "extract_output": dg.AssetIn(key=extract_asset_name),
+        },
+    )
+    def _transform_event(
+        context: dg.OpExecutionContext,
+        extract_output: Dict[str, Any] | None,
+        transformer: EventTransformer,
+    ) -> pd.DataFrame | None:
+        """
+        Transform extracted {config['graphql_name']} event data.
+        """
+
+        if extract_output is None:
+            return None
 
         # ========================================
         # STEP 2: TRANSFORM DATA
         # ========================================
         context.log.info("Transforming event data...")
 
+        df = extract_output["df"]
+        data = extract_output["data"]
+
         df_transformed = transformer.transform_event_data(
             df=df,
             config=config,
             original_data=data,  # Keep original for raw_data column
         )
+
+        return df_transformed
+
+    @dg.asset(
+        name=upsert_asset_name,
+        group_name=config["group_name"],
+        ins={
+            "transform_output": dg.AssetIn(key=transform_asset_name),
+        },
+    )
+    def _upsert_entities(
+        context: dg.OpExecutionContext,
+        transform_output: pd.DataFrame | None,
+        db_client: DatabaseClient,
+        entity_manager: EntityManager,
+    ) -> Dict[str, Any]:
+        """
+        Upsert entities for {config['graphql_name']} events.
+        """
+
+        if transform_output is None:
+            return {}
 
         # ========================================
         # STEP 3: UPSERT ENTITIES
@@ -143,7 +185,7 @@ def create_event_extraction_and_load_asset(
                     continue
 
                 try:
-                    entity_ids = extractor(df)
+                    entity_ids = extractor(transform_output)
 
                     # Call appropriate upsert method
                     if entity_type == "Operator":
@@ -170,6 +212,68 @@ def create_event_extraction_and_load_asset(
                     context.log.error(f"Failed to upsert {entity_type}: {e}")
                     entity_stats[entity_type] = {"error": str(e)}
 
+        return entity_stats
+
+    @dg.asset(
+        name=load_asset_name,
+        group_name=config["group_name"],
+        metadata={
+            "event_type": config["graphql_name"],
+            "table": config["table_name"],
+            "contract": config["contract_source"],
+            "entities": config["entity_dependencies"],
+        },
+        ins={
+            "transform_output": dg.AssetIn(key=transform_asset_name),
+            "upsert_output": dg.AssetIn(key=upsert_asset_name),
+        },
+    )
+    def _load_event(
+        context: dg.OpExecutionContext,
+        transform_output: pd.DataFrame | None,
+        upsert_output: Dict[str, Any],
+        db_client: DatabaseClient,
+        event_loader: EventLoader,
+    ) -> Dict[str, Any]:
+        """
+        Load transformed {config['graphql_name']} events into {config['table_name']}.
+        """
+
+        if transform_output is None:
+            context.log.info(f"No new data to load into {config['table_name']}.")
+
+            with db_client.get_session() as session:
+                last_block = event_loader.get_last_processed_block(
+                    session, config["table_name"]
+                )
+
+            result = {
+                "status": "no_new_data",
+                "events_fetched": 0,
+                "events_inserted": 0,
+                "events_updated": 0,
+                "events_skipped": 0,
+                "events_errors": 0,
+                "entities_upserted": {},
+                "last_block_processed": last_block,
+            }
+
+            context.add_output_metadata(
+                {
+                    "events_fetched": dg.MetadataValue.int(result["events_fetched"]),
+                    "events_inserted": dg.MetadataValue.int(result["events_inserted"]),
+                    "last_block": dg.MetadataValue.int(
+                        int(result.get("last_block_processed") or 0)
+                    ),
+                    "entities": dg.MetadataValue.json(result["entities_upserted"]),
+                }
+            )
+
+            return result
+
+        df_transformed = transform_output
+        entity_stats = upsert_output
+
         # ========================================
         # STEP 4: LOAD EVENTS
         # ========================================
@@ -192,17 +296,13 @@ def create_event_extraction_and_load_asset(
         # ========================================
         result = {
             "status": "success",
-            "events_fetched": len(df),
+            "events_fetched": len(df_transformed),
             "events_inserted": load_stats["inserted"],
             "events_updated": load_stats["updated"],
             "events_skipped": load_stats["skipped"],
             "events_errors": load_stats["errors"],
             "entities_upserted": entity_stats,
-            "last_block_processed": (
-                df_transformed["block_number"].max()
-                if not df_transformed.empty
-                else last_block
-            ),
+            "last_block_processed": df_transformed["block_number"].max(),
         }
 
         context.log.info(f"Asset completed successfully: {result}")
@@ -212,14 +312,16 @@ def create_event_extraction_and_load_asset(
             {
                 "events_fetched": dg.MetadataValue.int(result["events_fetched"]),
                 "events_inserted": dg.MetadataValue.int(result["events_inserted"]),
-                "last_block": dg.MetadataValue.int(result["last_block_processed"]),
+                "last_block": dg.MetadataValue.int(
+                    int(result.get("last_block_processed") or 0)
+                ),
                 "entities": dg.MetadataValue.json(result["entities_upserted"]),
             }
         )
 
         return result
 
-    return _extract_and_load_event
+    return [_extract_event, _transform_event, _upsert_entities, _load_event]
 
 
 # Generate all assets programmatically
@@ -230,8 +332,8 @@ def generate_all_operator_event_assets():
     """
     assets = []
     for event_name, config in OPERATOR_EVENT_CONFIGS.items():
-        asset = create_event_extraction_and_load_asset(config=config, first=100)
-        assets.append(asset)
+        event_assets = create_event_extraction_and_load_assets(config=config, first=5)
+        assets.extend(event_assets)
     return assets
 
 

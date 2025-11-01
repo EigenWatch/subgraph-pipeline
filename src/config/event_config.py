@@ -57,10 +57,11 @@ OPERATOR_REGISTERED_CONFIG: EventConfig = {
 }
 
 OPERATOR_METADATA_UPDATE_CONFIG: EventConfig = {
-    "graphql_name": "operatorMetadataURIUpdateds",
+    "graphql_name": "operatorMetadataUpdates",
     "table_name": "operator_metadata_update_events",
     "fields": [
         "id",
+        "logIndex",
         "transactionHash",
         "blockNumber",
         "blockTimestamp",
@@ -77,6 +78,7 @@ OPERATOR_METADATA_UPDATE_CONFIG: EventConfig = {
         .tolist()
     },
     "column_mapping": {
+        "logIndex": "log_index",
         "transactionHash": "transaction_hash",
         "blockNumber": "block_number",
         "blockTimestamp": "block_timestamp",
@@ -167,7 +169,7 @@ ALLOCATION_DELAY_SET_CONFIG: EventConfig = {
 
 OPERATOR_EVENT_CONFIGS = {
     "operatorRegistereds": OPERATOR_REGISTERED_CONFIG,
-    "operatorMetadataURIUpdateds": OPERATOR_METADATA_UPDATE_CONFIG,
+    "operatorMetadataUpdates": OPERATOR_METADATA_UPDATE_CONFIG,
     "delegationApproverUpdateds": DELEGATION_APPROVER_UPDATED_CONFIG,
     "allocationDelaysSets": ALLOCATION_DELAY_SET_CONFIG,
     # Add more as you implement them:

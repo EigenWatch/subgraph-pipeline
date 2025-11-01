@@ -88,6 +88,7 @@ class Staker(Base, TimestampMixin):
     id = Column(String, primary_key=True)  # staker address as string (hex)
     address = Column(String, nullable=False)
 
+    eigen_pods = relationship("EigenPod", back_populates="owner")
     delegation_events = relationship("StakerDelegationEvent", back_populates="staker")
     share_events = relationship("OperatorShareEvent", back_populates="staker")
     deposit_events = relationship("Deposit", back_populates="staker")
@@ -120,6 +121,7 @@ class AVS(Base, TimestampMixin):
     __tablename__ = "avs"
     id = Column(String, primary_key=True)  # avs address as string (hex)
     address = Column(String, nullable=False)
+    operator_sets = relationship("OperatorSet", back_populates="avs")
 
     operator_registration_events = relationship(
         "OperatorAVSRegistrationStatusUpdated", back_populates="avs"
@@ -162,7 +164,7 @@ class OperatorSet(Base, TimestampMixin):
     operator_set_id = Column(BigInteger, nullable=False)
 
     avs = relationship(
-        "AVS", back_populates="operator_set_creation_events"
+        "AVS", back_populates="operator_sets"
     )  # Note: adjusted for relationships
     creation_event = relationship("OperatorSetCreated", back_populates="operator_set")
     member_join_events = relationship(
@@ -195,7 +197,7 @@ class EigenPod(Base, TimestampMixin):
         String, ForeignKey("stakers.id", ondelete="CASCADE"), nullable=False
     )
 
-    owner = relationship("Staker", back_populates="pod_deployment_events")  # Adjusted
+    owner = relationship("Staker", back_populates="eigen_pods")
     deployment_event = relationship("PodDeployed", back_populates="pod")
     beacon_chain_deposit_events = relationship(
         "BeaconChainDeposit", back_populates="pod"

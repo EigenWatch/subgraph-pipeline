@@ -25,6 +25,11 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 from models.base import Base
 
+# Debug: Verify tables are loaded
+# print(f"✅ Loaded {len(Base.metadata.tables)} tables:")
+# for table_name in sorted(Base.metadata.tables.keys()):
+#     print(f"  📋 {table_name}")
+
 target_metadata = Base.metadata
 
 

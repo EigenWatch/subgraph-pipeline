@@ -60,7 +60,7 @@ class EventLoader(dg.ConfigurableResource):
                 update_dict = {
                     col.name: stmt.excluded[col.name]
                     for col in table.columns
-                    if col.name not in ["id", "created_at"]
+                    if col.name not in ["id", "created_at"]  # Don't update created_at
                 }
                 update_dict["updated_at"] = stmt.excluded.updated_at
 
@@ -72,9 +72,11 @@ class EventLoader(dg.ConfigurableResource):
                     ),  # skip identical updates
                 ).returning(
                     table.c.id,
+                    # Compare created_at with updated_at from the RESULT table
+                    # If they're equal, it was just inserted
                     case(
                         (
-                            table.c.created_at == stmt.excluded.created_at,
+                            table.c.created_at == table.c.updated_at,
                             literal_column("'inserted'"),
                         ),
                         else_=literal_column("'updated'"),
